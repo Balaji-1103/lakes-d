@@ -19,12 +19,14 @@ import google.oauth2.service_account as service_account
 
 PROJECT_ID = 'gee-lake-project' 
 
-# If running on Streamlit Cloud, use the hidden VIP JSON Key
 if "gcp_service_account" in st.secrets:
     key_dict = dict(st.secrets["gcp_service_account"])
     credentials = service_account.Credentials.from_service_account_info(key_dict)
-    ee.Initialize(credentials, project=PROJECT_ID)
-# If running locally on your laptop, use the normal browser login
+    
+    # --- THIS IS THE FIX: DECLARING THE SCOPE ---
+    scoped_credentials = credentials.with_scopes(['https://www.googleapis.com/auth/earthengine'])
+    ee.Initialize(scoped_credentials, project=PROJECT_ID)
+    
 else:
     try:
         ee.Initialize(project=PROJECT_ID)
