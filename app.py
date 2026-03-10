@@ -4,9 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import ee
 import folium
-import json
 from streamlit_folium import st_folium
 from gee_backend import get_gee_data
+import google.oauth2.service_account as service_account
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -14,31 +14,39 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------------- GEE SETUP & AUTH ----------------
-import google.oauth2.service_account as service_account
-
+# ---------------- GEE SETUP & AUTH (PRODUCTION) ----------------
 PROJECT_ID = 'gee-lake-project' 
 
+# This block securely logs in using Streamlit Cloud Secrets
 if "gcp_service_account" in st.secrets:
     key_dict = dict(st.secrets["gcp_service_account"])
     credentials = service_account.Credentials.from_service_account_info(key_dict)
     
-    # --- THIS IS THE FIX: DECLARING THE SCOPE ---
+    # Official Earth Engine Scope
     scoped_credentials = credentials.with_scopes(['https://www.googleapis.com/auth/earthengine'])
     ee.Initialize(scoped_credentials, project=PROJECT_ID)
     
 else:
+    # Fallback for local testing if secrets aren't found
     try:
         ee.Initialize(project=PROJECT_ID)
     except Exception as e:
         ee.Authenticate()
         ee.Initialize(project=PROJECT_ID)
 
+# =========================================================
+# TIMELINE CONTROLS (SIDEBAR)
+# =========================================================
+st.sidebar.header("⏳ Timeline Controls")
+base_year = st.sidebar.selectbox("Select Baseline Year", [2018, 2019, 2020, 2021, 2022], index=2)
+current_year = st.sidebar.selectbox("Select Current Year", [2023, 2024, 2025, 2026], index=3)
+st.sidebar.markdown("---")
+
 # ---------------- DYNAMIC DATA FETCHING ----------------
 @st.cache_data(ttl=86400)
-def load_gee_data():
-    with st.spinner('📡 Fetching satellite data, water quality, and computing ML risk scores...'):
-        finalWithRank, yearlyWaterStats, monthlyWaterStats = get_gee_data()
+def load_gee_data(b_year, c_year):
+    with st.spinner(f'📡 Computing live satellite math ({b_year} vs {c_year}). This takes ~30 seconds...'):
+        finalWithRank, yearlyWaterStats, monthlyWaterStats = get_gee_data(b_year, c_year)
         
         rank_data = finalWithRank.getInfo()['features']
         yearly_data = yearlyWaterStats.getInfo()['features']
@@ -51,12 +59,11 @@ def load_gee_data():
         return df_rank, df_yearly, df_monthly
 
 @st.cache_data(show_spinner=False)
-def get_timelapse_url(lake_name):
-    """Generates an Earth Engine GIF URL for the selected lake from 2018-2024"""
+def get_timelapse_url(lake_name, b_year, c_year):
     lakes_fc = ee.FeatureCollection('projects/gee-lake-project/assets/bengaluru_lakes')
     lake_geom = lakes_fc.filter(ee.Filter.eq('name', lake_name)).geometry()
     
-    years = ee.List.sequence(2018, 2024)
+    years = ee.List.sequence(b_year, c_year)
     
     def create_yearly_image(year):
         start = ee.Date.fromYMD(year, 1, 1)
@@ -82,7 +89,7 @@ def get_timelapse_url(lake_name):
 st.title("🌊 Geo-Intelligence Based Urban Lake Risk Assessment")
 
 # ---------------- LOAD DATA ----------------
-rank_df, yearly_df, monthly_df = load_gee_data()
+rank_df, yearly_df, monthly_df = load_gee_data(base_year, current_year)
 
 # ---------------- MODEL PERFORMANCE ----------------
 st.markdown("## 🤖 ML Model Performance")
@@ -183,10 +190,9 @@ st.markdown("## 🔬 Deep Dive: Individual Lake Analysis")
 selected_lake = st.selectbox("Select a Lake for Detailed Analysis", rank_df["Lake"].unique())
 lake_stats = rank_df[rank_df["Lake"] == selected_lake].iloc[0]
 
-# --- NEW: AUTOMATED AI ANALYST ---
+# --- AUTOMATED AI ANALYST ---
 st.markdown(f"### 🤖 AI Executive Summary: {selected_lake}")
 
-# AI Logic Engine
 enc = lake_stats['Encroachment_Percent']
 enc_str = "severe" if enc >= 40 else "moderate" if enc >= 20 else "low"
 
@@ -197,7 +203,6 @@ wq_str = "poor" if (algae > 60 or turbidity > 60) else "moderate" if (algae > 40
 change = lake_stats['Water_Change_Percent']
 change_str = f"shrunk by {abs(change):.1f}%" if change < -5 else f"expanded by {change:.1f}%" if change > 5 else "remained stable"
 
-# Get slope for AI prediction text
 lake_trend_ai = yearly_df[yearly_df["Lake"] == selected_lake].sort_values("Year")
 x_ai = lake_trend_ai["Year"].values
 y_ai = lake_trend_ai["Water_Area_sqkm"].values
@@ -207,13 +212,11 @@ if len(x_ai) > 1:
     slope = z_ai[0]
 trend_str = "a continued drying trend" if slope < -0.005 else "stable or recovering water levels" if slope > 0.005 else "stagnant conditions"
 
-# Generate the AI Text
 ai_summary = f"""
 **Insight:** {selected_lake} is currently classified as a **{lake_stats['Risk_Category']} Risk** zone (Score: {lake_stats['Risk_Score']:.1f}/100). 
-Spatial ML analysis reveals **{enc_str} urban encroachment ({enc:.1f}%)** within its 500m buffer. Since 2020, the surface water area has **{change_str}**. Ecological remote sensors indicate **{wq_str} water quality** (Algae severity: {algae:.1f}/100, Turbidity: {turbidity:.1f}/100). Based on the 2018-2024 trajectory, predictive models forecast **{trend_str}** heading into 2030 unless interventions are made.
+Spatial ML analysis reveals **{enc_str} urban encroachment ({enc:.1f}%)** within its 500m buffer. Since {base_year}, the surface water area has **{change_str}**. Ecological remote sensors indicate **{wq_str} water quality** (Algae severity: {algae:.1f}/100, Turbidity: {turbidity:.1f}/100). Based on the {base_year}-{current_year} trajectory, predictive models forecast **{trend_str}** heading into 2030 unless interventions are made.
 """
 
-# Render color-coded box based on risk
 if lake_stats['Risk_Category'] in ['Critical', 'High']:
     st.error(ai_summary)
 elif lake_stats['Risk_Category'] == 'Medium':
@@ -221,9 +224,8 @@ elif lake_stats['Risk_Category'] == 'Medium':
 else:
     st.success(ai_summary)
 
-
 # --- WATER QUALITY METRICS ---
-st.markdown(f"### 🧪 Water Quality Metrics (2024)")
+st.markdown(f"### 🧪 Water Quality Metrics ({current_year})")
 colQ1, colQ2, colQ3 = st.columns(3)
 with colQ1:
     st.metric("Algae Severity (NDCI)", f"{round(lake_stats['Algae_NDCI_Score'], 2)} / 100")
@@ -233,7 +235,7 @@ with colQ3:
     st.metric("Total Risk Score", f"{round(lake_stats['Risk_Score'], 2)}")
 
 # --- TABBED VIEW: SATELLITE MAP vs TIMELAPSE ---
-tab1, tab2 = st.tabs(["🗺️ Live Satellite Map", "⏳ Animated Timelapse (2018 - 2024)"])
+tab1, tab2 = st.tabs(["🗺️ Live Satellite Map", f"⏳ Animated Timelapse ({base_year} - {current_year})"])
 
 with tab1:
     with st.spinner("Rendering Native Earth Engine Satellite Map..."):
@@ -248,7 +250,7 @@ with tab1:
         
         s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
             .filterBounds(selected_ee_lake.geometry()) \
-            .filterDate('2024-01-01', '2024-12-31') \
+            .filterDate(f'{current_year}-01-01', f'{current_year}-12-31') \
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30)) \
             .median()
             
@@ -256,7 +258,7 @@ with tab1:
         folium.TileLayer(
             tiles=map_id_dict['tile_fetcher'].url_format,
             attr='Google Earth Engine',
-            name='Sentinel-2 RGB (2024)',
+            name=f'Sentinel-2 RGB ({current_year})',
             overlay=True,
             control=True
         ).add_to(Map)
@@ -279,7 +281,7 @@ with tab1:
 
 with tab2:
     with st.spinner("Generating Earth Engine Timelapse GIF... (This takes a few seconds)"):
-        gif_url = get_timelapse_url(selected_lake)
+        gif_url = get_timelapse_url(selected_lake, base_year, current_year)
         st.markdown(f"<h4 style='text-align: center;'>Urban Encroachment & Water Level Changes at {selected_lake}</h4>", unsafe_allow_html=True)
         st.image(gif_url, use_container_width=True)
 
@@ -305,7 +307,7 @@ ax5.plot(x_ai, y_ai, marker='o', label="Historical Water Area", color='blue')
 
 if len(x_ai) > 1:
     p = np.poly1d(z_ai)
-    future_x = np.array([2024, 2025, 2026, 2027, 2028, 2029, 2030])
+    future_x = np.arange(current_year, 2031)
     future_y = p(future_x)
     ax5.plot(future_x, future_y, linestyle='--', color='red', label="Forecasted Trend (Linear)")
 
@@ -330,4 +332,4 @@ st.pyplot(fig6)
 
 # ---------------- FOOTER ----------------
 st.markdown("---")
-st.markdown("<center>Developed by Balaji | Geo-Intelligence Lake Risk System | 2026</center>", unsafe_allow_html=True)
+st.markdown(f"<center>Developed by Balaji | Geo-Intelligence Lake Risk System | {current_year}</center>", unsafe_allow_html=True)
