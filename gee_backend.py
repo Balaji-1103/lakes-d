@@ -1,11 +1,19 @@
 import ee
 
-def get_gee_data():
+def get_gee_data(base_year, current_year):
     """
     This function executes the Earth Engine machine learning pipeline
     and returns the processed Feature Collections for Streamlit.
+    Now upgraded to dynamically accept any baseline and current year!
     """
     
+    # --- NEW: Dynamic Date Strings ---
+    base_start = f"{base_year}-01-01"
+    base_end = f"{base_year}-12-31"
+    
+    current_start = f"{current_year}-01-01"
+    current_end = f"{current_year}-12-31"
+
     # 1. Load Bengaluru lakes
     lakes = ee.FeatureCollection('projects/gee-lake-project/assets/bengaluru_lakes')
 
@@ -17,10 +25,10 @@ def get_gee_data():
     bands = ['B2','B3','B4','B8','B11','B12','NDVI','NDBI']
     baseBands = ['B2','B3','B4','B8','B11','B12']
 
-    # Sentinel-2 composite for ML (UPDATED TO HARMONIZED)
+    # Sentinel-2 composite for ML (UPDATED TO HARMONIZED & DYNAMIC DATES)
     s2_ml = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
         .filterBounds(lakes_1000m) \
-        .filterDate('2024-01-01', '2024-12-31') \
+        .filterDate(current_start, current_end) \
         .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30)) \
         .select(baseBands) \
         .median()
@@ -98,10 +106,10 @@ def get_gee_data():
         def map_ndwi(img):
             return img.normalizedDifference(['B3', 'B8']).rename('NDWI')
 
-        # UPDATED TO HARMONIZED and added early select
+        # UPDATED TO HARMONIZED and added dynamic dates
         s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
             .filterBounds(geom) \
-            .filterDate('2024-01-01', '2024-12-31') \
+            .filterDate(current_start, current_end) \
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30)) \
             .select(['B3', 'B8']) \
             .map(map_ndwi)
@@ -149,7 +157,8 @@ def get_gee_data():
         return ee.Number(waterArea).divide(1e6)
 
     # 6. Multi-Year and Monthly Reductions
-    years = ee.List.sequence(2018, 2024)
+    # Dynamically scales the graph up to the user's selected current_year
+    years = ee.List.sequence(2018, int(current_year))
     months = ee.List.sequence(1, 12)
 
     def map_lake_year(lake):
@@ -186,22 +195,22 @@ def get_gee_data():
         encroachment = getBuiltupPercentage(lake)
         waterStress = getWaterStress(lake)
         
-        # Historical water comparison
-        water2020 = getYearWaterArea(lake, '2020-01-01', '2020-12-31')
-        water2024 = getYearWaterArea(lake, '2024-01-01', '2024-12-31')
+        # Historical water comparison using dynamic user inputs
+        waterBase = getYearWaterArea(lake, base_start, base_end)
+        waterCurrent = getYearWaterArea(lake, current_start, current_end)
         
         changePercent = ee.Algorithms.If(
-            water2020.gt(0),
-            ee.Number(water2024).subtract(water2020).divide(water2020).multiply(100),
+            waterBase.gt(0),
+            ee.Number(waterCurrent).subtract(waterBase).divide(waterBase).multiply(100),
             0
         )
         waterLossScore = ee.Number(changePercent).lt(0).multiply(ee.Number(changePercent).abs())
         
         # --- NEW: WATER QUALITY MODULE (NDCI & NDTI) ---
-        # UPDATED TO HARMONIZED and added explicit select()
+        # UPDATED TO HARMONIZED and dynamic dates
         s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
             .filterBounds(geom) \
-            .filterDate('2024-01-01', '2024-12-31') \
+            .filterDate(current_start, current_end) \
             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 30)) \
             .select(['B3', 'B4', 'B5', 'B8'])
             
@@ -239,8 +248,8 @@ def get_gee_data():
             'Lake': lakeName, 
             'Encroachment_Percent': encroachment, 
             'Water_Stress_Score': waterStress,
-            'Water_2020_sqkm': water2020, 
-            'Water_2024_sqkm': water2024,
+            'Water_Base_sqkm': waterBase,      # Dynamic Key!
+            'Water_Current_sqkm': waterCurrent, # Dynamic Key!
             'Water_Change_Percent': changePercent, 
             'Algae_NDCI_Score': algae_score,
             'Turbidity_NDTI_Score': turbidity_score,
