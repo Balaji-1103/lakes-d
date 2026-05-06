@@ -185,7 +185,6 @@ st.markdown("---")
 # =========================================================
 # SECTION 2: LAKE DEEP DIVE (SPECIFIC ANALYSIS)
 # =========================================================
-st.markdown("---")
 st.markdown("## 🔬 Deep Dive: Individual Lake Analysis")
 selected_lake = st.selectbox("Select a Lake for Detailed Analysis", rank_df["Lake"].unique())
 lake_stats = rank_df[rank_df["Lake"] == selected_lake].iloc[0]
