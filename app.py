@@ -91,40 +91,6 @@ st.title("🌊 Geo-Intelligence Based Urban Lake Risk Assessment")
 # ---------------- LOAD DATA ----------------
 rank_df, yearly_df, monthly_df = load_gee_data(base_year, current_year)
 
-# ---------------- MODEL PERFORMANCE ----------------
-st.markdown("## 🤖 ML Model Performance")
-colA, colB = st.columns(2)
-colA.metric("Overall Accuracy", "95.74%")
-colB.metric("Kappa Score", "0.94")
-st.markdown("---")
-
-# ---------------- ALERT FLAG ----------------
-rank_df["Alert"] = rank_df["Risk_Score"].apply(lambda x: "YES" if x >= 70 else "NO")
-
-# =========================================================
-# SECTION 1: GLOBAL OVERVIEW
-# =========================================================
-
-st.markdown("## 📊 Risk Overview")
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    highest = rank_df.sort_values("Rank").iloc[0]["Lake"]
-    st.markdown("### 🏆 Highest Priority Lake")
-    st.markdown(f"<h2 style='text-align:center;color:red'>{highest}</h2>", unsafe_allow_html=True)
-
-with col2:
-    critical_count = len(rank_df[rank_df["Risk_Category"] == "Critical"])
-    st.markdown("### 🚨 Critical Lakes")
-    st.markdown(f"<h2 style='text-align:center;color:red'>{critical_count}</h2>", unsafe_allow_html=True)
-
-with col3:
-    avg_score = round(rank_df["Risk_Score"].mean(), 2)
-    st.markdown("### 📈 Average Risk Score")
-    st.markdown(f"<h2 style='text-align:center;color:orange'>{avg_score}</h2>", unsafe_allow_html=True)
-
-st.markdown("---")
-
 st.sidebar.header("🔎 Filter Options")
 risk_filter = st.sidebar.multiselect(
     "Select Risk Category",
@@ -181,6 +147,40 @@ with col_scatter:
 st.markdown("## 🚨 Lakes Requiring Immediate Attention")
 alert_df = rank_df[rank_df["Risk_Category"].isin(["Critical", "High"])]
 st.dataframe(alert_df[["Rank", "Lake", "Risk_Score", "Risk_Category"]], width="stretch")
+
+# ---------------- ALERT FLAG ----------------
+rank_df["Alert"] = rank_df["Risk_Score"].apply(lambda x: "YES" if x >= 70 else "NO")
+
+# =========================================================
+# SECTION 1: GLOBAL OVERVIEW
+# =========================================================
+
+st.markdown("## 📊 Risk Overview")
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    highest = rank_df.sort_values("Rank").iloc[0]["Lake"]
+    st.markdown("### 🏆 Highest Priority Lake")
+    st.markdown(f"<h2 style='text-align:center;color:red'>{highest}</h2>", unsafe_allow_html=True)
+
+with col2:
+    critical_count = len(rank_df[rank_df["Risk_Category"] == "Critical"])
+    st.markdown("### 🚨 Critical Lakes")
+    st.markdown(f"<h2 style='text-align:center;color:red'>{critical_count}</h2>", unsafe_allow_html=True)
+
+with col3:
+    avg_score = round(rank_df["Risk_Score"].mean(), 2)
+    st.markdown("### 📈 Average Risk Score")
+    st.markdown(f"<h2 style='text-align:center;color:orange'>{avg_score}</h2>", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ---------------- MODEL PERFORMANCE ----------------
+st.markdown("## 🤖 ML Model Performance")
+colA, colB = st.columns(2)
+colA.metric("Overall Accuracy", "95.74%")
+colB.metric("Kappa Score", "0.94")
+st.markdown("---")
 
 # =========================================================
 # SECTION 2: LAKE DEEP DIVE (SPECIFIC ANALYSIS)
